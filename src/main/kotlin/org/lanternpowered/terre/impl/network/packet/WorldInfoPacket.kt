@@ -29,6 +29,7 @@ internal class WorldInfoPacket(
     val uniqueId: UUID,
     val name: String,
     val generatorVersion: Long,
+    val isServerSideCharacter: Boolean,
     val data: ByteBuf
 ) : Packet, ForwardingReferenceCounted(data) {
 
@@ -50,6 +51,37 @@ private val idOffset = calculateLength {
   short() // rock layer position
 }
 
+private val afterGeneratorVersionToEventInfoOffset = calculateLength {
+  byte() // moon type
+  byte() // tree background
+  byte() // corruption background
+  byte() // jungle background
+  byte() // snow background
+  byte() // hallow background
+  byte() // crimson background
+  byte() // desert background
+  byte() // ocean background
+  byte() // ice back style
+  byte() // jungle back style
+  byte() // hell back style
+  float() // wind
+  byte() // cloud number
+  int() // tree 1
+  int() // tree 2
+  int() // tree 3
+  byte() // tree style 1
+  byte() // tree style 2
+  byte() // tree style 3
+  int() // cave back 1
+  int() // cave back 2
+  int() // cave back 3
+  byte() // cave back style 1
+  byte() // cave back style 2
+  byte() // cave back style 3
+  byte() // cave back style 4
+  float() // rain
+}
+
 internal val WorldInfoEncoder = WorldInfoEncoder(Int.MAX_VALUE)
 
 internal inline fun WorldInfoEncoder(protocol: Int) = packetEncoderOf<WorldInfoPacket> { buf, packet ->
@@ -61,8 +93,12 @@ internal inline fun WorldInfoEncoder(protocol: Int) = packetEncoderOf<WorldInfoP
     buf.writeUUID(packet.uniqueId)
     buf.writeLongLE(packet.generatorVersion)
   }
+  val index = buf.writerIndex()
   buf.writeBytes(data, idOffset, data.readableBytes() - idOffset)
-  // Last long is the steam lobby id, do we need to handle this?
+  // Apply the isServerSideCharacter bit if applicable
+  val eventInfoIndex = index + afterGeneratorVersionToEventInfoOffset
+  if (packet.isServerSideCharacter)
+    buf.setByte(eventInfoIndex, buf.getByte(eventInfoIndex).toInt() or 0x40)
 }
 
 internal val WorldInfoDecoder = WorldInfoDecoder(Int.MAX_VALUE)
@@ -88,6 +124,12 @@ internal inline fun WorldInfoDecoder(protocol: Int) = packetDecoderOf { buf ->
   // Move reader index back to the end
   buf.readerIndex(end)
   data.writerIndex(size)
+  val eventInfo = data.getByte(afterGeneratorVersionToEventInfoOffset).toInt()
+  val isServerSideCharacter = if ((eventInfo and 0x40) != 0) {
+    // Clear the bit in the data
+    data.setByte(afterGeneratorVersionToEventInfoOffset, eventInfo and 0x40.inv())
+    true
+  } else false
 
-  WorldInfoPacket(id, uniqueId, name, generatorVersion, data)
+  WorldInfoPacket(id, uniqueId, name, generatorVersion, isServerSideCharacter, data)
 }
